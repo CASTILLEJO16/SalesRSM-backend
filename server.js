@@ -1,25 +1,51 @@
-
-
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const mongoose = require('mongoose');
 
-const authRoutes = require('./routes/auth');
-const clientsRoutes = require('./routes/clients');
 const app = express();
+
+// Configurar CORS
+app.use(cors({
+  origin: [
+    'http://localhost:5173',
+    'http://localhost:5174',
+    'https://tu-dominio.vercel.app' // Lo actualizarás después del deploy
+  ],
+  credentials: true
+}));
+
+// Middlewares
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
-app.use(cors());
-app.use(express.json());
+
+// Rutas
+const authRoutes = require('./routes/auth');
+const clientsRoutes = require('./routes/clients');
 
 app.use('/api/auth', authRoutes);
 app.use('/api/clients', clientsRoutes);
 
+// Ruta de prueba
+app.get('/', (req, res) => {
+  res.json({ 
+    message: '✅ API SalesRSM funcionando correctamente',
+    status: 'online'
+  });
+});
+
+// Puerto
 const PORT = process.env.PORT || 4000;
-mongoose.connect(process.env.MONGODB_URI, { useNewUrlParser:true, useUnifiedTopology:true })
-  .then(()=> {
-    console.log('MongoDB conectado');
-    app.listen(PORT, () => console.log(`Server running on ${PORT}`));
+
+// Conexión a MongoDB y arranque del servidor
+mongoose.connect(process.env.MONGODB_URI)
+  .then(() => {
+    console.log('✅ MongoDB conectado exitosamente');
+    app.listen(PORT, () => {
+      console.log(`🚀 Servidor corriendo en puerto ${PORT}`);
+    });
   })
-  .catch(err => console.error('DB error', err));
+  .catch(err => {
+    console.error('❌ Error conectando a MongoDB:', err);
+    process.exit(1);
+  });
