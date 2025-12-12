@@ -10,7 +10,7 @@ app.use(cors({
   origin: [
     'http://localhost:5173',
     'http://localhost:5174',
-    'https://tu-dominio.vercel.app',// Lo actualizarás después del deploy
+    'https://frontendrsm.vercel.app/',// Lo actualizarás después del deploy
     'https://*.vercel.app'
   ],
   credentials: true
