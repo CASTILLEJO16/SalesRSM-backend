@@ -5,16 +5,39 @@ const mongoose = require('mongoose');
 
 const app = express();
 
-// Configurar CORS
+// ⚠️ CORS DEBE IR PRIMERO - ANTES DE TODO
 app.use(cors({
-  origin: [
-    'http://localhost:5173',
-    'http://localhost:5174',
-    'https://frontendrsm-castillejo16s-projects.vercel.app',// Lo actualizarás después del deploy
-    'https://*.vercel.app'
-  ],
-  credentials: true
+  origin: function(origin, callback) {
+    // Permitir requests sin origin (como mobile apps o curl)
+    if (!origin) return callback(null, true);
+    
+    const allowedOrigins = [
+      'http://localhost:5173',
+      'http://localhost:5174',
+      'https://frontendrsm.vercel.app',
+      'https://frontendrsm-castillejo16s-projects.vercel.app'
+    ];
+    
+    // Permitir cualquier subdominio de vercel.app
+    if (origin.includes('.vercel.app')) {
+      return callback(null, true);
+    }
+    
+    if (allowedOrigins.indexOf(origin) !== -1) {
+      callback(null, true);
+    } else {
+      callback(null, true); // Por ahora permitir todos para debug
+    }
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+  exposedHeaders: ['Content-Range', 'X-Content-Range'],
+  maxAge: 600
 }));
+
+// Manejar preflight requests explícitamente
+app.options('*', cors());
 
 // Middlewares
 app.use(express.json({ limit: '10mb' }));
