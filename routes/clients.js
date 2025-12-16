@@ -28,14 +28,19 @@ router.post('/', auth, async (req, res) => {
     }
 
     // 🔧 FIX: Crear fecha sin conversión UTC
-    let fechaCliente;
-    if (fecha) {
-      const partes = fecha.split('-');
-      fechaCliente = new Date(partes[0], partes[1] - 1, partes[2]);
-    } else {
-      const ahora = new Date();
-      fechaCliente = new Date(ahora.getFullYear(), ahora.getMonth(), ahora.getDate());
-    }
+    // Reemplaza esta sección (aproximadamente línea 26-33):
+
+// 🔧 FIX DEFINITIVO: Forzar fecha local sin UTC
+let fechaCliente;
+if (fecha) {
+  // Si viene una fecha del frontend, parsearla correctamente
+  const [year, month, day] = fecha.split('-').map(Number);
+  fechaCliente = new Date(year, month - 1, day, 12, 0, 0); // Usar mediodía para evitar problemas
+} else {
+  // Si no viene fecha, usar HOY a mediodía
+  const ahora = new Date();
+  fechaCliente = new Date(ahora.getFullYear(), ahora.getMonth(), ahora.getDate(), 12, 0, 0);
+}
 
     const client = new Client({
       nombre,
