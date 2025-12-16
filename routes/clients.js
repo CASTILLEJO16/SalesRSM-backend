@@ -3,7 +3,6 @@ const router = express.Router();
 const Client = require('../models/Client');
 const auth = require('../middleware/auth');
 
-// Create client (registra historial)
 router.post('/', auth, async (req, res) => {
   try {
     const {
@@ -28,7 +27,15 @@ router.post('/', auth, async (req, res) => {
       });
     }
 
-    const fechaCliente = fecha ? new Date(fecha + 'T00:00:00') : new Date();
+    // 🔧 FIX: Crear fecha sin conversión UTC
+    let fechaCliente;
+    if (fecha) {
+      const partes = fecha.split('-');
+      fechaCliente = new Date(partes[0], partes[1] - 1, partes[2]);
+    } else {
+      const ahora = new Date();
+      fechaCliente = new Date(ahora.getFullYear(), ahora.getMonth(), ahora.getDate());
+    }
 
     const client = new Client({
       nombre,
@@ -46,7 +53,6 @@ router.post('/', auth, async (req, res) => {
         username: req.user.username
       }
     });
-
     // historial: creación
     client.historial.push({
       tipo: 'creado',
