@@ -3,6 +3,75 @@ const router = express.Router();
 const Client = require('../models/Client');
 const auth = require('../middleware/auth');
 
+// ============================================================
+// RUTAS PÚBLICAS (sin auth) - DEBEN IR PRIMERO
+// ============================================================
+
+// Obtener cliente por ID (público - para QR)
+router.get('/public/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const client = await Client.findById(id);
+    
+    if (!client) {
+      return res.status(404).json({ msg: "Cliente no encontrado" });
+    }
+    
+    // Devolver solo información básica
+    res.json({
+      _id: client._id,
+      nombre: client.nombre,
+      telefono: client.telefono,
+      email: client.email,
+      empresa: client.empresa
+    });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ msg: "Error obteniendo cliente" });
+  }
+});
+
+// Enviar mensaje público (sin auth - para QR)
+router.post('/public/:id/mensaje', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { mensaje, imagen } = req.body;
+
+    if (!mensaje || mensaje.trim() === "") {
+      return res.status(400).json({ msg: "Mensaje vacío" });
+    }
+
+    const client = await Client.findById(id);
+    if (!client) return res.status(404).json({ msg: "Cliente no encontrado" });
+
+    // Validar tamaño de imagen (máximo 5MB en base64)
+    if (imagen && imagen.length > 7000000) {
+      return res.status(400).json({ msg: "Imagen muy grande (máximo 5MB)" });
+    }
+
+    client.observaciones = mensaje;
+
+    client.historial.push({
+      tipo: 'mensaje',
+      mensaje,
+      imagen: imagen || null,
+      fecha: new Date(),
+      usuario: { nombre: 'Mensaje vía QR' } // Identificador para mensajes desde QR
+    });
+
+    await client.save();
+    res.json({ msg: "Mensaje guardado correctamente" });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ msg: "Error guardando mensaje" });
+  }
+});
+
+// ============================================================
+// RUTAS PROTEGIDAS (requieren auth)
+// ============================================================
+
+// Create client (registra historial)
 router.post('/', auth, async (req, res) => {
   try {
     const {
@@ -27,20 +96,15 @@ router.post('/', auth, async (req, res) => {
       });
     }
 
-    // 🔧 FIX: Crear fecha sin conversión UTC
-    // Reemplaza esta sección (aproximadamente línea 26-33):
-
-// 🔧 FIX DEFINITIVO: Forzar fecha local sin UTC
-let fechaCliente;
-if (fecha) {
-  // Si viene una fecha del frontend, parsearla correctamente
-  const [year, month, day] = fecha.split('-').map(Number);
-  fechaCliente = new Date(year, month - 1, day, 12, 0, 0); // Usar mediodía para evitar problemas
-} else {
-  // Si no viene fecha, usar HOY a mediodía
-  const ahora = new Date();
-  fechaCliente = new Date(ahora.getFullYear(), ahora.getMonth(), ahora.getDate(), 12, 0, 0);
-}
+    // 🔧 FIX DEFINITIVO: Forzar fecha local sin UTC
+    let fechaCliente;
+    if (fecha) {
+      const [year, month, day] = fecha.split('-').map(Number);
+      fechaCliente = new Date(year, month - 1, day, 12, 0, 0);
+    } else {
+      const ahora = new Date();
+      fechaCliente = new Date(ahora.getFullYear(), ahora.getMonth(), ahora.getDate(), 12, 0, 0);
+    }
 
     const client = new Client({
       nombre,
@@ -58,6 +122,7 @@ if (fecha) {
         username: req.user.username
       }
     });
+
     // historial: creación
     client.historial.push({
       tipo: 'creado',
@@ -232,15 +297,14 @@ router.post('/:id/ventas', auth, async (req, res) => {
     };
 
     client.ventas.push(venta);
-    client.compro = true; // marcar que compró
+    client.compro = true;
 
-    // 🔥 CAMBIAR 'venta' por 'compra' para que coincida con el frontend
     client.historial.push({
-      tipo: 'compra', // ✅ CAMBIO AQUÍ
+      tipo: 'compra',
       mensaje: `💰 $${Number(monto).toLocaleString()} - ${venta.producto}`,
       producto: venta.producto,
       monto: venta.monto,
-      fecha: new Date(), // ✅ usar new Date() para fecha actual
+      fecha: new Date(),
       usuario: { id: req.user.id, nombre: req.user.nombre || req.user.username }
     });
 
@@ -259,7 +323,7 @@ router.post('/:id/ventas', auth, async (req, res) => {
 router.post('/:id/mensaje', auth, async (req, res) => {
   try {
     const { id } = req.params;
-    const { mensaje, imagen } = req.body; // ✅ Agregar imagen
+    const { mensaje, imagen } = req.body;
 
     if (!mensaje || mensaje.trim() === "") {
       return res.status(400).json({ msg: "Mensaje vacío" });
@@ -280,7 +344,7 @@ router.post('/:id/mensaje', auth, async (req, res) => {
     client.historial.push({
       tipo: 'mensaje',
       mensaje,
-      imagen: imagen || null, // ✅ Guardar imagen
+      imagen: imagen || null,
       fecha: new Date(),
       usuario: { 
         id: req.user.id, 
@@ -295,4 +359,5 @@ router.post('/:id/mensaje', auth, async (req, res) => {
     res.status(500).json({ msg: "Error guardando mensaje" });
   }
 });
+
 module.exports = router;
