@@ -1,7 +1,16 @@
 const express = require('express');
 const router = express.Router();
 const Client = require('../models/Client');
+const User = require('../models/User');
 const auth = require('../middleware/auth');
+const authorize = require('../middleware/authorize');
+const { ROLES } = require('../utils/roles');
+
+function canAccessClient(client, user) {
+  const role = user?.role || ROLES.vendedor;
+  if (role === ROLES.admin || role === ROLES.gerente) return true;
+  return String(client?.vendedor?.id || '') === String(user?.id || '');
+}
 
 // ============================================================
 // RUTAS PÚBLICAS (sin auth) - DEBEN IR PRIMERO
@@ -106,6 +115,25 @@ router.post('/', auth, async (req, res) => {
       fechaCliente = new Date(ahora.getFullYear(), ahora.getMonth(), ahora.getDate(), 12, 0, 0);
     }
 
+    const role = req.user.role || ROLES.vendedor;
+    let vendedor = {
+      id: req.user.id,
+      nombre: req.user.nombre,
+      username: req.user.username
+    };
+
+    // Admin/Gerente pueden asignar cliente a otro vendedor
+    if ((role === ROLES.admin || role === ROLES.gerente) && req.body.vendedorId) {
+      const assigned = await User.findById(req.body.vendedorId);
+      if (assigned) {
+        vendedor = {
+          id: assigned._id,
+          nombre: assigned.nombre,
+          username: assigned.username
+        };
+      }
+    }
+
     const client = new Client({
       nombre,
       telefono,
@@ -116,11 +144,7 @@ router.post('/', auth, async (req, res) => {
       observaciones,
       razonNoCompra,
       ventas: ventasIniciales,
-      vendedor: {
-        id: req.user.id,
-        nombre: req.user.nombre,
-        username: req.user.username
-      }
+      vendedor
     });
 
     // historial: creación
@@ -154,7 +178,9 @@ router.post('/', auth, async (req, res) => {
 // Get all clients
 router.get('/', auth, async (req, res) => {
   try {
-    const clients = await Client.find().sort({ fecha: -1 });
+    const role = req.user.role || ROLES.vendedor;
+    const query = role === ROLES.vendedor ? { 'vendedor.id': req.user.id } : {};
+    const clients = await Client.find(query).sort({ fecha: -1 });
     res.json(clients);
   } catch (e) {
     console.error(e);
@@ -171,8 +197,14 @@ router.put('/:id', auth, async (req, res) => {
 
     const client = await Client.findById(id);
     if (!client) return res.status(404).json({ msg: "Cliente no encontrado" });
+    if (!canAccessClient(client, req.user)) return res.status(403).json({ msg: "No autorizado" });
+
+    if (!canAccessClient(client, req.user)) {
+      return res.status(403).json({ msg: "No autorizado" });
+    }
 
     const cambios = [];
+    const usuarioHistorial = { id: req.user.id, nombre: req.user.nombre || req.user.username };
     
     // 1️⃣ Detectar cambios en campos básicos
     const camposImportantes = {
@@ -190,7 +222,8 @@ router.put('/:id', auth, async (req, res) => {
         cambios.push({
           tipo: "editado",
           mensaje: `${etiqueta} modificado`,
-          fecha: new Date()
+          fecha: new Date(),
+          usuario: usuarioHistorial
         });
       }
     }
@@ -201,15 +234,17 @@ router.put('/:id', auth, async (req, res) => {
       cambios.push({
         tipo: "mensaje",
         mensaje: req.body.observaciones,
-        fecha: new Date()
+        fecha: new Date(),
+        usuario: usuarioHistorial
       });
     }
 
     // 3️⃣ Detectar NUEVAS VENTAS (array ventas creció)
     const ventasAnteriores = client.ventas?.length || 0;
     const ventasNuevas = req.body.ventas?.length || 0;
+    const appendedSales = ventasNuevas > ventasAnteriores;
     
-    if (ventasNuevas > ventasAnteriores) {
+    if (appendedSales) {
       // Agregar historial por cada venta nueva
       const nuevasVentasArray = req.body.ventas.slice(ventasAnteriores);
       
@@ -218,8 +253,19 @@ router.put('/:id', auth, async (req, res) => {
           tipo: "compra",
           mensaje: `Venta registrada: ${venta.producto || 'Producto'}`,
           monto: venta.monto,
-          fecha: new Date()
+          fecha: new Date(),
+          usuario: usuarioHistorial
         });
+
+        const montoNum = Number(venta?.monto || 0);
+        if (montoNum > 0) {
+          client.ventas.push({
+            producto: venta.producto || 'Venta',
+            monto: montoNum,
+            fecha: venta.fecha ? new Date(venta.fecha) : new Date()
+          });
+          client.compro = true;
+        }
       });
     }
 
@@ -229,8 +275,28 @@ router.put('/:id', auth, async (req, res) => {
       cambios.push({
         tipo: "editado",
         mensaje: "Contactos adicionales actualizados",
-        fecha: new Date()
+        fecha: new Date(),
+        usuario: usuarioHistorial
       });
+    }
+
+    // Admin/Gerente: permitir reasignar vendedor
+    const role = req.user.role || ROLES.vendedor;
+    if ((role === ROLES.admin || role === ROLES.gerente) && req.body.vendedorId) {
+      const assigned = await User.findById(req.body.vendedorId);
+      if (assigned) {
+        const before = String(client?.vendedor?.id || '');
+        const after = String(assigned._id);
+        if (before !== after) {
+          client.vendedor = { id: assigned._id, nombre: assigned.nombre, username: assigned.username };
+          cambios.push({
+            tipo: "editado",
+            mensaje: `Vendedor reasignado a ${assigned.nombre || assigned.username}`,
+            fecha: new Date(),
+            usuario: usuarioHistorial
+          });
+        }
+      }
     }
 
     // Agregar cambios al historial
@@ -239,8 +305,23 @@ router.put('/:id', auth, async (req, res) => {
       console.log(`✅ Agregados ${cambios.length} cambios al historial`);
     }
 
-    // Aplicar cambios al documento
-    Object.assign(client, req.body);
+    // Aplicar cambios al documento (evita sobrescribir arrays sensibles como ventas/historial/vendedor)
+    const allowedFields = [
+      'nombre',
+      'telefono',
+      'email',
+      'empresa',
+      'fecha',
+      'compro',
+      'observaciones',
+      'razonNoCompra',
+      'contactosAdicionales'
+    ];
+
+    for (const field of allowedFields) {
+      if (field === 'compro' && appendedSales) continue;
+      if (req.body[field] !== undefined) client[field] = req.body[field];
+    }
     await client.save();
 
     res.json(client);
@@ -252,7 +333,7 @@ router.put('/:id', auth, async (req, res) => {
 });
 
 // Delete cliente (guarda historial antes)
-router.delete('/:id', auth, async (req, res) => {
+router.delete('/:id', auth, authorize([ROLES.admin]), async (req, res) => {
   try {
     const { id } = req.params;
     const client = await Client.findById(id);
@@ -289,6 +370,7 @@ router.post('/:id/ventas', auth, async (req, res) => {
 
     const client = await Client.findById(id);
     if (!client) return res.status(404).json({ msg: "Cliente no encontrado" });
+    if (!canAccessClient(client, req.user)) return res.status(403).json({ msg: "No autorizado" });
 
     const venta = {
       producto: producto || 'Venta',

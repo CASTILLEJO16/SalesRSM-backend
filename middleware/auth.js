@@ -8,7 +8,10 @@ module.exports = function(req, res, next) {
 
   try {
     const payload = jwt.verify(token, process.env.JWT_SECRET);
-    req.user = payload;
+    req.user = {
+      ...payload,
+      role: payload.role || 'vendedor'
+    };
     next();
   } catch (err) {
     return res.status(401).json({ msg:'Token inválido' });
