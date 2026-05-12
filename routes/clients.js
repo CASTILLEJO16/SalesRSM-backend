@@ -180,7 +180,9 @@ router.get('/', auth, async (req, res) => {
   try {
     const role = req.user.role || ROLES.vendedor;
     const query = role === ROLES.vendedor ? { 'vendedor.id': req.user.id } : {};
-    const clients = await Client.find(query).sort({ fecha: -1 });
+    const clients = await Client.find(query)
+      .select('-historial.imagen')
+      .sort({ fecha: -1 });
     res.json(clients);
   } catch (e) {
     console.error(e);
