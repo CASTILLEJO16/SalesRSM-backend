@@ -2,6 +2,9 @@ const mongoose = require('mongoose');
 
 const VentaSchema = new mongoose.Schema({
   producto: { type: String, required: false },
+  cantidad: { type: Number, required: false, default: 1 },
+  unidad: { type: String, required: false, default: 'unidad' },
+  precioUnitario: { type: Number, required: false, default: 0 },
   monto: { type: Number, required: true, default: 0 },
   fecha: { type: Date, default: Date.now }
 });
@@ -24,6 +27,7 @@ const ClientSchema = new mongoose.Schema({
   telefono: String,
   email: String,
   empresa: String,
+  activo: { type: Boolean, default: true },
   fecha: { type: Date, default: Date.now },
   compro: { type: Boolean, default: false },
   observaciones: String,

@@ -48,9 +48,11 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 // Rutas
 const authRoutes = require('./routes/auth');
 const clientsRoutes = require('./routes/clients');
+const productsRoutes = require('./routes/products');
 
 app.use('/api/auth', authRoutes);
 app.use('/api/clients', clientsRoutes);
+app.use('/api/products', productsRoutes);
 
 // Estado de conexión a MongoDB
 let mongoConnected = false;

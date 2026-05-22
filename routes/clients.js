@@ -139,6 +139,7 @@ router.post('/', auth, async (req, res) => {
       telefono,
       email,
       empresa,
+      activo: req.body.activo !== undefined ? req.body.activo : true,
       fecha: fechaCliente,
       compro,
       observaciones,
@@ -178,8 +179,12 @@ router.post('/', auth, async (req, res) => {
 // Get all clients
 router.get('/', auth, async (req, res) => {
   try {
+    const { activo } = req.query;
     const role = req.user.role || ROLES.vendedor;
     const query = role === ROLES.vendedor ? { 'vendedor.id': req.user.id } : {};
+    if (activo !== undefined) {
+      query.activo = activo === 'true';
+    }
     const clients = await Client.find(query)
       .select('-historial.imagen')
       .sort({ fecha: -1 });
@@ -214,6 +219,7 @@ router.put('/:id', auth, async (req, res) => {
       telefono: 'Teléfono', 
       email: 'Email',
       empresa: 'Empresa',
+      activo: 'Estado',
       compro: 'Estado de compra',
       razonNoCompra: 'Razón de no compra'
     };
@@ -313,6 +319,7 @@ router.put('/:id', auth, async (req, res) => {
       'telefono',
       'email',
       'empresa',
+      'activo',
       'fecha',
       'compro',
       'observaciones',
@@ -334,26 +341,54 @@ router.put('/:id', auth, async (req, res) => {
   }
 });
 
-// Delete cliente (guarda historial antes)
+// Inactivar cliente (soft delete)
 router.delete('/:id', auth, authorize([ROLES.admin]), async (req, res) => {
   try {
     const { id } = req.params;
     const client = await Client.findById(id);
     if (!client) return res.status(404).json({ msg: "Cliente no encontrado" });
 
+    client.activo = false;
     client.historial.push({
       tipo: 'eliminado',
-      mensaje: `Cliente eliminado por ${req.user.nombre || req.user.username}`,
+      mensaje: `Cliente inactivado por ${req.user.nombre || req.user.username}`,
       fecha: new Date(),
       usuario: { id: req.user.id, nombre: req.user.nombre || req.user.username }
     });
 
     await client.save();
-    await Client.findByIdAndDelete(id);
-    res.json({ msg: "Cliente eliminado" });
+    res.json(client);
   } catch (e) {
     console.error(e);
-    res.status(500).json({ msg: "Error eliminando cliente" });
+    res.status(500).json({ msg: "Error inactivando cliente" });
+  }
+});
+
+router.patch('/:id/status', auth, authorize([ROLES.admin]), async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { activo } = req.body;
+
+    if (typeof activo !== 'boolean') {
+      return res.status(400).json({ msg: "Estado invÃ¡lido" });
+    }
+
+    const client = await Client.findById(id);
+    if (!client) return res.status(404).json({ msg: "Cliente no encontrado" });
+
+    client.activo = activo;
+    client.historial.push({
+      tipo: 'editado',
+      mensaje: `Cliente ${activo ? 'reactivado' : 'inactivado'} por ${req.user.nombre || req.user.username}`,
+      fecha: new Date(),
+      usuario: { id: req.user.id, nombre: req.user.nombre || req.user.username }
+    });
+
+    await client.save();
+    res.json(client);
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ msg: "Error actualizando estado del cliente" });
   }
 });
 
@@ -370,7 +405,7 @@ router.post('/:id/ventas', auth, async (req, res) => {
       return res.status(400).json({ msg: "Monto inválido" });
     }
 
-    const client = await Client.findById(id);
+    const client = await Client.findOne({ _id: id, activo: { $ne: false } });
     if (!client) return res.status(404).json({ msg: "Cliente no encontrado" });
     if (!canAccessClient(client, req.user)) return res.status(403).json({ msg: "No autorizado" });
 
